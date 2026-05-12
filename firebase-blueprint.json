@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and onboarding state",
+      "type": "object",
+      "properties": {
+        "page": { "type": "number" },
+        "gender": { "type": "string" },
+        "age": { "type": "number" },
+        "height": { "type": "number" },
+        "heightUnit": { "type": "string" },
+        "goal": { "type": "string" },
+        "weight": { "type": "number" },
+        "weightUnit": { "type": "string" },
+        "targetWeight": { "type": "number" },
+        "targetWeightUnit": { "type": "string" },
+        "activityLevel": { "type": "string" },
+        "sleepTime": { "type": "string" },
+        "wakeTime": { "type": "string" },
+        "morningTime": { "type": "string" },
+        "lunchTime": { "type": "string" },
+        "dinnerTime": { "type": "string" },
+        "showMorning": { "type": "boolean" },
+        "showLunch": { "type": "boolean" },
+        "showDinner": { "type": "boolean" },
+        "preWorkoutTime": { "type": "string" },
+        "postWorkoutTime": { "type": "string" },
+        "showPreWorkout": { "type": "boolean" },
+        "showPostWorkout": { "type": "boolean" },
+        "morningSnackTime": { "type": "string" },
+        "afternoonSnackTime": { "type": "string" },
+        "eveningSnackTime": { "type": "string" },
+        "nightSnackTime": { "type": "string" },
+        "showMorningSnack": { "type": "boolean" },
+        "showAfternoonSnack": { "type": "boolean" },
+        "showEveningSnack": { "type": "boolean" },
+        "showNightSnack": { "type": "boolean" },
+        "dietType": { "type": "string" },
+        "allergies": { "type": "array" },
+        "otherAllergy": { "type": "string" },
+        "eatOutFrequency": { "type": "string" },
+        "cookAtHomeFrequency": { "type": "string" },
+        "waterIntake": { "type": "string" },
+        "challenges": { "type": "array" },
+        "reminders": {
+           "type": "object"
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User specific data"
+    }
+  }
+}
