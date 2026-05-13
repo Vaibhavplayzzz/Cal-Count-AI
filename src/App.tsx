@@ -590,7 +590,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] selection:bg-green-100 overflow-x-hidden">
+    <div className="min-h-screen bg-[#E5E7EB] flex justify-center selection:bg-green-100">
+      <div className="w-full max-w-[450px] h-screen h-[100dvh] bg-[#F8F9FA] text-[#1A1A1A] relative shadow-2xl overflow-hidden flex flex-col">
       {/* Global Notification Pop */}
       <AnimatePresence>
         {activeNotification && (
@@ -598,7 +599,7 @@ export default function App() {
             initial={{ opacity: 0, y: -100, x: '-50%' }}
             animate={{ opacity: 1, y: 24, x: '-50%' }}
             exit={{ opacity: 0, y: -100, x: '-50%' }}
-            className="fixed top-0 left-1/2 z-[300] w-[90%] max-w-sm bg-white/80 backdrop-blur-2xl border border-white/50 shadow-[0_20px_50px_rgba(0,0,0,0.1)] rounded-[2.5rem] p-5 flex items-center gap-4"
+            className="absolute top-0 left-1/2 z-[300] w-[90%] max-w-sm bg-white/80 backdrop-blur-2xl border border-white/50 shadow-[0_20px_50px_rgba(0,0,0,0.1)] rounded-[2.5rem] p-5 flex items-center gap-4"
           >
             <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-green-100">
               <activeNotification.icon className="w-7 h-7" />
@@ -621,7 +622,7 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-8 text-center"
+            className="absolute inset-0 z-[200] bg-white flex flex-col items-center justify-center p-8 text-center"
           >
             <motion.div
               animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
@@ -638,7 +639,7 @@ export default function App() {
 
       {/* Global Progress Bar (Onboarding steps 2-17) */}
       {page > 1 && page < 18 && (
-        <div className="fixed top-0 left-0 right-0 z-[100] h-1.5 bg-gray-100">
+        <div className="absolute top-0 left-0 right-0 z-[100] h-1.5 bg-gray-100">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${((page - 1) / 16) * 100}%` }}
@@ -657,7 +658,7 @@ export default function App() {
           animate="center"
           exit="exit"
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          className="relative h-screen w-full overflow-hidden"
+          className="relative h-full w-full overflow-hidden"
         >
           {page === 1 && (
             <div className="h-full flex flex-col justify-between p-8">
@@ -3163,7 +3164,7 @@ export default function App() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 bg-[#1A1A1A]/60 backdrop-blur-md z-[100] flex items-end justify-center p-4"
+                    className="absolute inset-0 bg-[#1A1A1A]/60 backdrop-blur-md z-[100] flex items-end justify-center p-4"
                     onClick={() => setShowQuickAdd(false)}
                   >
                     <motion.div
@@ -3492,14 +3493,14 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowProfile(false)}
-              className="fixed inset-0 bg-[#1A1A1A]/40 backdrop-blur-sm z-[150]"
+              className="absolute inset-0 bg-[#1A1A1A]/40 backdrop-blur-sm z-[150]"
             />
             <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-full w-[85%] sm:w-[60%] lg:w-[50%] max-w-lg bg-white z-[160] shadow-2xl flex flex-col overflow-hidden"
+              className="absolute top-0 right-0 h-full w-[85%] bg-white z-[160] shadow-2xl flex flex-col overflow-hidden"
             >
               <AnimatePresence mode="wait">
                 {showGoalSettings ? (
@@ -4195,6 +4196,7 @@ export default function App() {
           </>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }
