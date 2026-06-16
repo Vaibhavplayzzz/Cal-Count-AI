@@ -19,6 +19,44 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+const isFoodItem = (scanResult: any): boolean => {
+  if (!scanResult) return false;
+  
+  // 1. Explicit boolean property from new schema representation
+  if (typeof scanResult.isFood === 'boolean') {
+    return scanResult.isFood;
+  }
+  
+  // 2. Fallbacks for compatibility
+  const calories = scanResult.nutrients?.calories;
+  if (calories !== undefined && calories !== null) {
+    const valStr = String(calories).toLowerCase();
+    const isZeroOrNA = valStr === '0' || valStr === 'n/a' || valStr === 'none' || valStr === '0 kcal';
+    if (!isZeroOrNA) {
+      const calNum = parseInt(valStr.replace(/[^\d]/g, ''), 10);
+      if (!isNaN(calNum) && calNum > 0) return true;
+    }
+  }
+
+  const protein = scanResult.nutrients?.protein;
+  if (protein && typeof protein === 'string') {
+    const valStr = protein.toLowerCase();
+    if (valStr !== 'n/a' && valStr !== '0' && valStr !== '0g' && valStr !== 'none') {
+      return true;
+    }
+  }
+
+  const carbs = scanResult.nutrients?.carbs;
+  if (carbs && typeof carbs === 'string') {
+    const valStr = carbs.toLowerCase();
+    if (valStr !== 'n/a' && valStr !== '0' && valStr !== '0g' && valStr !== 'none') {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -117,6 +155,7 @@ export default function App() {
   const [scanResult, setScanResult] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [manualEntry, setManualEntry] = useState({ name: '', cal: '' });
@@ -452,32 +491,14 @@ export default function App() {
     setScanResult(null);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      // Using gemini-3.5-flash for ultimate speed and intelligent analysis of both food and non-food items
       
-      const prompt = `Analyze this food image. You are a world-class nutritionist capable of identifying global cuisines with extreme accuracy, including:
-      - Desi/Indian (e.g., Dal Makhani, Paneer Tikka, Biryani)
-      - South Indian (e.g., Masala Dosa, Idli-Sambar, Vada)
-      - Western (e.g., Pasta, Steak, Salads)
-      - Junk Food (e.g., Samosas, Burgers, Fries, Pizza)
-      - Healthy/Diet Food
-      
-      Identify the specific dish and estimate nutrients for the portion shown. Provide the following information in JSON format:
-      {
-        "foodName": "string",
-        "cuisineType": "string",
-        "nutrients": {
-          "calories": number,
-          "protein": "string",
-          "carbs": "string",
-          "fats": "string",
-          "fiber": "string"
-        },
-        "advantages": ["string"],
-        "disadvantages": ["string"],
-        "healthScore": number (1-100)
-      }`;
+      const prompt = `Identify the object in this image. 
+      If it is a FOOD item: act as a nutritionist, provide the details and set isFood to true.
+      If it is a NON-FOOD item: identify the object clearly as a non-food item, specify what it is, provide its category/characteristics, and set isFood to false.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: [
           {
             parts: [
@@ -496,22 +517,60 @@ export default function App() {
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              foodName: { type: Type.STRING },
-              cuisineType: { type: Type.STRING },
+              isFood: {
+                type: Type.BOOLEAN,
+                description: "True if the item is food, key ingredients, a meal, beverage, or edible. False if the item is a non-food object (furniture, device, footwear, tools, etc.)"
+              },
+              foodName: {
+                type: Type.STRING,
+                description: "Name of the food item or object identified"
+              },
+              cuisineType: {
+                type: Type.STRING,
+                description: "Cuisine style (e.g., Italian, Mexican) or general category of object"
+              },
               nutrients: {
                 type: Type.OBJECT,
                 properties: {
-                  calories: { type: Type.NUMBER },
-                  protein: { type: Type.STRING },
-                  carbs: { type: Type.STRING },
-                  fats: { type: Type.STRING },
-                  fiber: { type: Type.STRING }
-                }
+                  calories: {
+                    type: Type.NUMBER,
+                    description: "Total calories count as a pure number. Must be realistic for food (e.g. 105), and strictly 0 for non-food items."
+                  },
+                  protein: {
+                    type: Type.STRING,
+                    description: "Protein in grams (e.g. '12g'). Offer 'N/A' if non-food."
+                  },
+                  carbs: {
+                    type: Type.STRING,
+                    description: "Carbohydrates in grams (e.g. '24g'). Offer 'N/A' if non-food."
+                  },
+                  fats: {
+                    type: Type.STRING,
+                    description: "Total fats in grams (e.g. '8g'). Offer 'N/A' if non-food."
+                  },
+                  fiber: {
+                    type: Type.STRING,
+                    description: "Fiber in grams (e.g. '3g'). Offer 'N/A' if non-food."
+                  }
+                },
+                required: ["calories", "protein", "carbs", "fats", "fiber"]
               },
-              advantages: { type: Type.ARRAY, items: { type: Type.STRING } },
-              disadvantages: { type: Type.ARRAY, items: { type: Type.STRING } },
-              healthScore: { type: Type.NUMBER }
-            }
+              advantages: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "List of 3-5 distinct advantages, high nutrients benefits, or uses of the item"
+              },
+              disadvantages: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: "List of 2-4 distinct drawbacks, moderate side effects, specs concerns, or nutritional warnings (e.g. high sugar) if applicable"
+              },
+              healthScore: {
+                type: Type.NUMBER,
+                description: "Nutrient health score (1-100) or general utility/safety score (1-100)"
+              }
+            },
+            required: ["isFood", "foodName", "cuisineType", "nutrients", "advantages", "disadvantages", "healthScore"]
           }
         }
       });
@@ -521,6 +580,96 @@ export default function App() {
     } catch (error) {
       console.error("Gemini Analysis failed", error);
     } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const compressAndScan = (file: File) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const originalBase64 = reader.result as string;
+      
+      // Compress image client-side via canvas before upload for ultra-fast scans (20-30KB vs 10MB)
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxDim = 512; // 512px is perfect for Gemini to maintain accuracy while being incredibly fast
+        let w = img.width;
+        let h = img.height;
+        if (w > h) {
+          if (w > maxDim) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          }
+        } else {
+          if (h > maxDim) {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.75); // JPEG with 75% quality is highly compressed and fast to transfer
+          setCapturedImage(compressedBase64);
+          analyzeFoodWithGemini(compressedBase64);
+        } else {
+          setCapturedImage(originalBase64);
+          analyzeFoodWithGemini(originalBase64);
+        }
+      };
+      img.onerror = () => {
+        setCapturedImage(originalBase64);
+        analyzeFoodWithGemini(originalBase64);
+      };
+      img.src = originalBase64;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePresetScan = async (imgUrl: string) => {
+    setIsAnalyzing(true);
+    setCapturedImage(imgUrl);
+    setScanResult(null);
+    
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxDim = 400;
+        let w = img.width;
+        let h = img.height;
+        if (w > h) {
+          if (w > maxDim) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          }
+        } else {
+          if (h > maxDim) {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+          analyzeFoodWithGemini(dataUrl);
+        } else {
+          setIsAnalyzing(false);
+        }
+      };
+      img.onerror = () => {
+        setIsAnalyzing(false);
+      };
+      img.src = imgUrl;
+    } catch (err) {
+      console.error(err);
       setIsAnalyzing(false);
     }
   };
@@ -3288,75 +3437,153 @@ export default function App() {
                 >
                   <ChevronLeft className="w-6 h-6" />
                 </motion.button>
-                <h2 className="text-xl font-display font-bold">Food Scanner</h2>
+                <h2 className="text-xl font-display font-bold">A.I. Smart Scanner</h2>
                 <div className="w-12 h-12" /> {/* Spacer */}
               </div>
 
               <div className="flex-1 px-6 space-y-6 overflow-y-auto pb-32">
                 {!capturedImage ? (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="relative w-full aspect-square rounded-[3rem] bg-[#1A1A1A] overflow-hidden shadow-2xl border-4 border-white"
-                  >
-                    {/* Simulated Camera Viewfinder */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-[80%] h-[80%] border-2 border-white/20 rounded-3xl border-dashed relative">
-                         <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-green-500 rounded-tl-xl" />
-                         <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-green-500 rounded-tr-xl" />
-                         <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-green-500 rounded-bl-xl" />
-                         <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-green-500 rounded-br-xl" />
+                  <div className="space-y-6">
+                    {/* Viewfinder with Drag & Drop */}
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => {
+                        setIsDragging(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          compressAndScan(file);
+                        }
+                      }}
+                      onClick={() => {
+                        const fileEl = document.getElementById('scanner-gallery-input');
+                        if (fileEl) fileEl.click();
+                      }}
+                      className={`relative w-full aspect-square rounded-[3rem] bg-[#1A1A1A] overflow-hidden shadow-2xl border-4 transition-all cursor-pointer ${
+                        isDragging ? 'border-green-500 bg-[#1e2e25]' : 'border-white'
+                      }`}
+                    >
+                      {/* Simulated Camera Viewfinder Grid lines */}
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-[80%] h-[80%] border-2 border-white/20 rounded-3xl border-dashed relative">
+                           <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-green-500 rounded-tl-xl" />
+                           <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-green-500 rounded-tr-xl" />
+                           <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-green-500 rounded-bl-xl" />
+                           <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-green-500 rounded-br-xl" />
+                        </div>
                       </div>
+
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center space-y-4">
+                        <motion.div 
+                          animate={isDragging ? { scale: 1.1, y: -5 } : {}}
+                          className={`w-20 h-20 rounded-full flex items-center justify-center ${
+                            isDragging ? 'bg-green-500 text-white' : 'bg-white/10 text-white'
+                          } backdrop-blur-md transition-colors`}
+                        >
+                          <Camera className="w-10 h-10" />
+                        </motion.div>
+                        <div className="space-y-1">
+                          <p className="text-white font-bold text-lg">
+                            {isDragging ? 'Drop Image to Scan!' : 'Scan Any Object / Item'}
+                          </p>
+                          <p className="text-gray-400 text-sm">
+                            Drag & drop here or tap to choose a file
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+
+                    {/* Camera and Gallery Upload Selection */}
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Simulated Camera Capture - uses capture="environment" for camera on mobile */}
+                      <label className="cursor-pointer flex flex-col items-center justify-center p-4 bg-white border border-gray-100 rounded-3xl shadow-sm hover:bg-gray-50 active:scale-95 transition-all text-center">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          capture="environment" 
+                          className="hidden" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) compressAndScan(file);
+                          }}
+                        />
+                        <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center text-green-500 mb-2">
+                          <Camera className="w-6 h-6" />
+                        </div>
+                        <span className="text-sm font-bold text-gray-700">Camera Photo</span>
+                        <span className="text-[10px] text-gray-400 mt-0.5">Use camera</span>
+                      </label>
+
+                      {/* Regular Gallery upload without capture parameter */}
+                      <label className="cursor-pointer flex flex-col items-center justify-center p-4 bg-white border border-gray-100 rounded-3xl shadow-sm hover:bg-gray-50 active:scale-95 transition-all text-center">
+                        <input 
+                          id="scanner-gallery-input"
+                          type="file" 
+                          accept="image/*" 
+                          className="hidden" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) compressAndScan(file);
+                          }}
+                        />
+                        <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500 mb-2">
+                          <Scan className="w-6 h-6" />
+                        </div>
+                        <span className="text-sm font-bold text-gray-700">Choose Image</span>
+                        <span className="text-[10px] text-gray-400 mt-0.5">Pick from gallery</span>
+                      </label>
                     </div>
 
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center space-y-4">
-                      <div className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center text-white">
-                        <Camera className="w-10 h-10" />
+                    {/* DEMO PRESETS */}
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-1.5 bg-green-500 rounded-full" />
+                        <h4 className="text-[11px] font-black uppercase tracking-wider text-gray-400">⚡ Preset Scans (Instant Test)</h4>
                       </div>
-                      <div className="space-y-1">
-                        <p className="text-white font-bold text-lg">Position food in center</p>
-                        <p className="text-gray-400 text-sm">Tap button below to scan</p>
+                      
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { name: "🍌 Banana (Food)", url: "https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?auto=format&fit=crop&w=400&q=80" },
+                          { name: "🥑 Avocado (Food)", url: "https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=400&q=80" },
+                          { name: "☕ Coffee (Drink)", url: "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=400&q=80" },
+                          { name: "👟 Sneaker (Object)", url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=80" },
+                          { name: "💻 Laptop (Object)", url: "https://images.unsplash.com/photo-1496181130204-755241544e35?auto=format&fit=crop&w=400&q=80" }
+                        ].map((preset) => (
+                          <motion.button
+                            key={preset.name}
+                            whileHover={{ scale: 1.03 }}
+                            whileTap={{ scale: 0.97 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePresetScan(preset.url);
+                            }}
+                            className="px-3 py-2 bg-white hover:bg-green-50/30 border border-gray-100 rounded-xl text-[11px] font-bold text-gray-600 flex items-center gap-1.5 transition-all shadow-sm"
+                          >
+                            <span>{preset.name}</span>
+                          </motion.button>
+                        ))}
                       </div>
                     </div>
-
-                    {/* Camera Capture Controls */}
-                    <div className="absolute bottom-8 left-0 right-0 flex justify-center">
-                       <label className="cursor-pointer">
-                         <input 
-                           type="file" 
-                           accept="image/*" 
-                           capture="environment" 
-                           className="hidden" 
-                           onChange={(e) => {
-                             const file = e.target.files?.[0];
-                             if (file) {
-                               const reader = new FileReader();
-                               reader.onloadend = () => {
-                                 const base64String = reader.result as string;
-                                 setCapturedImage(base64String);
-                                 analyzeFoodWithGemini(base64String);
-                               };
-                               reader.readAsDataURL(file);
-                             }
-                           }}
-                         />
-                         <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center border-8 border-white shadow-xl hover:scale-110 active:scale-95 transition-transform">
-                           <Camera className="w-8 h-8 text-white" />
-                         </div>
-                       </label>
-                    </div>
-                  </motion.div>
+                  </div>
                 ) : (
                   <div className="space-y-6">
                     {/* Captured Image Preview */}
                     <div className="relative w-full aspect-square rounded-[3rem] overflow-hidden shadow-xl border-4 border-white">
-                      <img src={capturedImage} alt="Food" className="w-full h-full object-cover" />
+                      <img src={capturedImage} alt="Selection" className="w-full h-full object-cover" />
                       {isAnalyzing && (
                         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-4">
                           <div className="w-12 h-12 border-4 border-white/20 border-t-green-500 rounded-full animate-spin" />
                           <div className="text-center">
-                            <p className="font-bold text-lg">Analyzing Food...</p>
-                            <p className="text-gray-300 text-sm">Identifying nutrients & benefits</p>
+                            <p className="font-bold text-lg">Analyzing Selection...</p>
+                            <p className="text-gray-300 text-sm">Identifying characteristics & details</p>
                           </div>
                         </div>
                       )}
@@ -3389,16 +3616,23 @@ export default function App() {
                                   {scanResult.cuisineType}
                                 </span>
                                 <Activity className="w-4 h-4 ml-1" />
-                                <span>Nutrition Breakdown</span>
+                                <span>{isFoodItem(scanResult) ? 'Nutrition Breakdown' : 'Item Characteristics'}</span>
                               </div>
                             </div>
-                            <div className="flex flex-col items-center">
-                              <div className="text-3xl font-display font-bold">{scanResult.nutrients?.calories}</div>
-                              <div className="text-[10px] text-gray-400 font-black uppercase">Calories</div>
-                            </div>
+                            {isFoodItem(scanResult) && (
+                              <div className="flex flex-col items-center">
+                                <div className="text-3xl font-display font-bold">
+                                  {typeof scanResult.nutrients?.calories === 'number' || !isNaN(parseInt(String(scanResult.nutrients?.calories))) 
+                                    ? parseInt(String(scanResult.nutrients?.calories)) 
+                                    : scanResult.nutrients?.calories}
+                                </div>
+                                <div className="text-[10px] text-gray-400 font-black uppercase">Calories</div>
+                              </div>
+                            )}
                           </div>
 
-                          <div className="grid grid-cols-4 gap-2">
+                          {isFoodItem(scanResult) && (
+                            <div className="grid grid-cols-4 gap-2">
                              {[
                                { label: 'Prot.', val: scanResult.nutrients?.protein, color: 'bg-orange-100 text-orange-600' },
                                { label: 'Carbs', val: scanResult.nutrients?.carbs, color: 'bg-blue-100 text-blue-600' },
@@ -3410,11 +3644,12 @@ export default function App() {
                                  <div className="text-[8px] font-black uppercase tracking-tighter">{macro.label}</div>
                                </div>
                              ))}
-                          </div>
+                            </div>
+                          )}
 
                           <div className="pt-4 border-t border-gray-50">
                              <div className="flex items-center justify-between mb-2">
-                               <span className="text-sm font-bold text-gray-600">Health Score</span>
+                               <span className="text-sm font-bold text-gray-600">{isFoodItem(scanResult) ? 'Health Score' : 'Confidence Score'}</span>
                                <span className="text-sm font-bold text-green-500">{scanResult.healthScore}%</span>
                              </div>
                              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
